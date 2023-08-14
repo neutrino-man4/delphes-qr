@@ -50,11 +50,11 @@ def write_log(dir,comments):
 
 ##### Define directory paths
 
-nAttempt=1
+nAttempt=2
 signal_name = 'grav_1p5_narrowReco'
 signal_injections = [0.]
-folds = 20
-qcd_sample = 'delphes_bkgReco'
+folds = 1
+qcd_sample = 'delphes_bkg'
 run_n = 113
 ##### Define directory paths
 case_qr_results = f'/storage/9/abal/CASE/QR_results/events/run_{run_n}/sig_{signal_name}/xsec_0/loss_rk5_05/{nAttempt}'
@@ -137,8 +137,11 @@ for siginj in signal_injections:
             #print(tmpdf['par'].values.tolist()[::-1])
             #print(p(1200))
             qrs.append(p)
-            
-        with h5py.File(f"{case_qr_results}/sig_{qcd_sample}_fold_{k}.h5", "r") as bkg_f:
+        
+        bkg_filename=os.path.join(case_qr_results,f'{qcd_sample}_fold_{k}.h5')
+        if folds==1:
+            bkg_filename=os.path.join(case_qr_results,f'{qcd_sample}.h5')
+        with h5py.File(bkg_filename, "r") as bkg_f:
             branch_names = bkg_f['eventFeatureNames'][()].astype(str)
             #print(branch_names)
             features = bkg_f['eventFeatures'][()]
@@ -186,62 +189,117 @@ for siginj in signal_injections:
                 all_loss = np.concatenate((all_loss,np.expand_dims(loss,axis=-1)))
                 all_mjj = np.concatenate((all_mjj,np.expand_dims(mjj,axis=-1)))
 
-        if siginj == 0.:
-            if k == 0:
-                with h5py.File(f"{case_qr_results}/sig_{signal_name}/xsec_0/loss_rk5_05/{nAttempt}/{signal_name}.h5", "r") as sig_f:
-                    branch_names = sig_f['eventFeatureNames'][()].astype(str)
-                    #print(branch_names)
-                    features = sig_f['eventFeatures'][()]
-                    mask = features[:,0]<9000
-                    features = features[mask]
-                    mjj = np.asarray(features[:,0])
-                    loss_indices = get_loss_indices(branch_names)
+        if k == 0:
+            with h5py.File(f"{case_qr_results}/{signal_name}.h5", "r") as sig_f:
+                branch_names = sig_f['eventFeatureNames'][()].astype(str)
+                #print(branch_names)
+                features = sig_f['eventFeatures'][()]
+                mask = features[:,0]<9000
+                features = features[mask]
+                mjj = np.asarray(features[:,0])
+                loss_indices = get_loss_indices(branch_names)
+        
+                loss = np.minimum(features[:,loss_indices['j1RecoLoss']]+0.5*features[:,loss_indices['j1KlLoss']],features[:,loss_indices['j2RecoLoss']]+0.5*features[:,loss_indices['j2KlLoss']]) 
+
+                for j,q in enumerate(quantiles):
+                    if q == '30':
+                        if len(sig_sel_q30) == 0:
+                            sig_sel_q30 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
+                        else:
+                            sig_sel_q30 = np.concatenate((sig_sel_q30,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
+                    if q == '70':
+                        if len(sig_sel_q70) == 0:
+                            sig_sel_q70 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
+                        else:
+                            sig_sel_q70 = np.concatenate((sig_sel_q70,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
+                    if q == '50':
+                        if len(sig_sel_q50) == 0:
+                            sig_sel_q50 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
+                        else:
+                            sig_sel_q50 = np.concatenate((sig_sel_q50,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
+                    if q == '10':
+                        if len(sig_sel_q10) == 0:
+                            sig_sel_q10 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
+                        else:
+                            sig_sel_q10 = np.concatenate((sig_sel_q10,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
+                    if q == '05':
+                        if len(sig_sel_q05) == 0:
+                            sig_sel_q05 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
+                        else:
+                            sig_sel_q05 = np.concatenate((sig_sel_q05,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
+                    if q == '01':
+                        if len(sig_sel_q01) == 0:
+                            sig_sel_q01 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
+                        else:
+                            sig_sel_q01 = np.concatenate((sig_sel_q01,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
+                if len(sig_loss) == 0:
+                    sig_loss = np.expand_dims(loss,axis=-1)
+                    sig_mjj = np.expand_dims(mjj,axis=-1)
+                else:
+                    sig_loss = np.concatenate((sig_loss,np.expand_dims(loss,axis=-1)))
+                    sig_mjj = np.concatenate((sig_mjj,np.expand_dims(mjj,axis=-1)))
+
+        # If signal is injected, then apply the QR to the so-called data, which is actually bkg+injected signal
+        if siginj != 0.:
+            data_filename=os.path.join(case_qr_results,f"delphes_bkg+inj_{signal_name}_{siginj}_fold_{k}.h5")
+            if folds==1:
+                data_filename=os.path.join(case_qr_results,f"delphes_bkg+inj_{signal_name}_{siginj}.h5")    
+            with h5py.File(data_filename, "r") as data_f:
+                branch_names = data_f['eventFeatureNames'][()].astype(str)
+                #print(branch_names)
+                features = data_f['eventFeatures'][()]
+                mask = features[:,0]<9000
+                features = features[mask]
+                mjj = np.asarray(features[:,0])
+                loss_indices = get_loss_indices(branch_names)
             
-                    loss = np.minimum(features[:,loss_indices['j1RecoLoss']]+0.5*features[:,loss_indices['j1KlLoss']],features[:,loss_indices['j2RecoLoss']]+0.5*features[:,loss_indices['j2KlLoss']]) 
+                loss = np.minimum(features[:,loss_indices['j1RecoLoss']]+0.5*features[:,loss_indices['j1KlLoss']],features[:,loss_indices['j2RecoLoss']]+0.5*features[:,loss_indices['j2KlLoss']]) 
 
-                    for j,q in enumerate(quantiles):
-                        if q == '30':
-                            if len(sig_sel_q30) == 0:
-                                sig_sel_q30 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
-                            else:
-                                sig_sel_q30 = np.concatenate((sig_sel_q30,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
-                        if q == '70':
-                            if len(sig_sel_q70) == 0:
-                                sig_sel_q70 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
-                            else:
-                                sig_sel_q70 = np.concatenate((sig_sel_q70,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
-                        if q == '50':
-                            if len(sig_sel_q50) == 0:
-                                sig_sel_q50 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
-                            else:
-                                sig_sel_q50 = np.concatenate((sig_sel_q50,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
-                        if q == '10':
-                            if len(sig_sel_q10) == 0:
-                                sig_sel_q10 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
-                            else:
-                                sig_sel_q10 = np.concatenate((sig_sel_q10,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
-                        if q == '05':
-                            if len(sig_sel_q05) == 0:
-                                sig_sel_q05 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
-                            else:
-                                sig_sel_q05 = np.concatenate((sig_sel_q05,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
-                        if q == '01':
-                            if len(sig_sel_q01) == 0:
-                                sig_sel_q01 = np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)
-                            else:
-                                sig_sel_q01 = np.concatenate((sig_sel_q01,np.expand_dims((loss > sig_qrs[j](mjj)),axis=-1)))
-                    if len(sig_loss) == 0:
-                        sig_loss = np.expand_dims(loss,axis=-1)
-                        sig_mjj = np.expand_dims(mjj,axis=-1)
-                    else:
-                        sig_loss = np.concatenate((sig_loss,np.expand_dims(loss,axis=-1)))
-                        sig_mjj = np.concatenate((sig_mjj,np.expand_dims(mjj,axis=-1)))
-
+                for j,q in enumerate(quantiles):
+                    if q == '30':
+                        if len(data_sel_q30) == 0:
+                            data_sel_q30 = np.expand_dims((loss > qrs[j](mjj)),axis=-1)
+                        else:
+                            data_sel_q30 = np.concatenate((data_sel_q30,np.expand_dims((loss > qrs[j](mjj)),axis=-1)))
+                    if q == '70':
+                        if len(data_sel_q70) == 0:
+                            data_sel_q70 = np.expand_dims((loss > qrs[j](mjj)),axis=-1)
+                        else:
+                            data_sel_q70 = np.concatenate((data_sel_q70,np.expand_dims((loss > qrs[j](mjj)),axis=-1)))
+                    if q == '50':
+                        if len(data_sel_q50) == 0:
+                            data_sel_q50 = np.expand_dims((loss > qrs[j](mjj)),axis=-1)
+                        else:
+                            data_sel_q50 = np.concatenate((data_sel_q50,np.expand_dims((loss > qrs[j](mjj)),axis=-1)))
+                    if q == '10':
+                        if len(data_sel_q10) == 0:
+                            data_sel_q10 = np.expand_dims((loss > qrs[j](mjj)),axis=-1)
+                        else:
+                            data_sel_q10 = np.concatenate((data_sel_q10,np.expand_dims((loss > qrs[j](mjj)),axis=-1)))
+                    if q == '05':
+                        if len(data_sel_q05) == 0:
+                            data_sel_q05 = np.expand_dims((loss > qrs[j](mjj)),axis=-1)
+                        else:
+                            data_sel_q05 = np.concatenate((data_sel_q05,np.expand_dims((loss > qrs[j](mjj)),axis=-1)))
+                    if q == '01':
+                        if len(data_sel_q01) == 0:
+                            data_sel_q01 = np.expand_dims((loss > qrs[j](mjj)),axis=-1)
+                        else:
+                            data_sel_q01 = np.concatenate((data_sel_q01,np.expand_dims((loss > qrs[j](mjj)),axis=-1)))
+                if len(data_loss) == 0:
+                    data_loss = np.expand_dims(loss,axis=-1)
+                    data_mjj = np.expand_dims(mjj,axis=-1)
+                else:
+                    data_loss = np.concatenate((data_loss,np.expand_dims(loss,axis=-1)))
+                    data_mjj = np.concatenate((data_mjj,np.expand_dims(mjj,axis=-1)))
 
 
     all_event_features = np.concatenate((all_mjj,all_loss,all_sel_q70,all_sel_q50,all_sel_q30,all_sel_q10,all_sel_q05,all_sel_q01),axis=-1)
-    if siginj == 0:
-        sig_event_features = np.concatenate((sig_mjj,sig_loss,sig_sel_q70,sig_sel_q50,sig_sel_q30,sig_sel_q10,sig_sel_q05,sig_sel_q01),axis=-1)
+    sig_event_features = np.concatenate((sig_mjj,sig_loss,sig_sel_q70,sig_sel_q50,sig_sel_q30,sig_sel_q10,sig_sel_q05,sig_sel_q01),axis=-1)
+    if siginj != 0:
+        data_event_features = np.concatenate((data_mjj,data_loss,data_sel_q70,data_sel_q50,data_sel_q30,data_sel_q10,data_sel_q05,data_sel_q01),axis=-1)
+        
+
     print(all_event_features.shape)
     
     case_qr_datasets=f'/ceph/abal/CASE/QR_datasets/run_{run_n}/unblinded_SRData/{nAttempt}'
@@ -255,7 +313,7 @@ for siginj in signal_injections:
 
     hf = h5py.File(os.path.join(case_qr_datasets,f'{outfilename}.h5'), 'w')
     #write_log(case_qr_datasets,comments)
-    log_command = f'cp -r {case_qr_models}/run_{run_n}/models_lmfit_csv/delphes/{nAttempt}/log.txt {case_qr_datasets}/'
+    log_command = f'cp -r {case_qr_models}/log.txt {case_qr_datasets}/'
     subprocess.call(log_command,shell=True)
     hf.create_dataset('mjj', data=np.array(all_mjj))
     hf.create_dataset('loss', data=np.array(all_loss))
@@ -268,21 +326,33 @@ for siginj in signal_injections:
     hf.create_dataset('eventFeatures', data=np.array(all_event_features))
     hf.create_dataset('eventFeatureNames', data=np.array(all_event_feature_names_reversed,dtype=dt))
     hf.close()
-    if siginj == 0:
-        sig_outfilename = 'signal_%s'%(signal_name)
-        sig_hf = h5py.File(os.path.join(case_qr_datasets,f'{sig_outfilename}.h5'), 'w')
-        sig_hf.create_dataset('mjj', data=np.array(sig_mjj))
-        sig_hf.create_dataset('loss', data=np.array(sig_loss))
-        sig_hf.create_dataset('sel_q30', data=np.array(sig_sel_q70))
-        sig_hf.create_dataset('sel_q50', data=np.array(sig_sel_q50))
-        sig_hf.create_dataset('sel_q70', data=np.array(sig_sel_q30))
-        sig_hf.create_dataset('sel_q90', data=np.array(sig_sel_q10))
-        sig_hf.create_dataset('sel_q95', data=np.array(sig_sel_q05))
-        sig_hf.create_dataset('sel_q99', data=np.array(sig_sel_q01))
-        sig_hf.create_dataset('eventFeatures', data=np.array(sig_event_features))
-        sig_hf.create_dataset('eventFeatureNames', data=np.array(sig_event_feature_names_reversed,dtype=dt))
-        sig_hf.close()
-        
-    
+    sig_outfilename = 'signal_%s'%(signal_name)
+    sig_hf = h5py.File(os.path.join(case_qr_datasets,f'{sig_outfilename}.h5'), 'w')
+    sig_hf.create_dataset('mjj', data=np.array(sig_mjj))
+    sig_hf.create_dataset('loss', data=np.array(sig_loss))
+    sig_hf.create_dataset('sel_q30', data=np.array(sig_sel_q70))
+    sig_hf.create_dataset('sel_q50', data=np.array(sig_sel_q50))
+    sig_hf.create_dataset('sel_q70', data=np.array(sig_sel_q30))
+    sig_hf.create_dataset('sel_q90', data=np.array(sig_sel_q10))
+    sig_hf.create_dataset('sel_q95', data=np.array(sig_sel_q05))
+    sig_hf.create_dataset('sel_q99', data=np.array(sig_sel_q01))
+    sig_hf.create_dataset('eventFeatures', data=np.array(sig_event_features))
+    sig_hf.create_dataset('eventFeatureNames', data=np.array(sig_event_feature_names_reversed,dtype=dt))
+    sig_hf.close()
+
+    if siginj != 0:
+        data_outfilename = 'bkg+inj_%s_%s'%(signal_name,str(siginj))
+        data_hf = h5py.File(os.path.join(case_qr_datasets,data_outfilename), 'w')
+        data_hf.create_dataset('mjj', data=np.array(data_mjj))
+        data_hf.create_dataset('loss', data=np.array(data_loss))
+        data_hf.create_dataset('sel_q30', data=np.array(data_sel_q70))
+        data_hf.create_dataset('sel_q50', data=np.array(data_sel_q50))
+        data_hf.create_dataset('sel_q70', data=np.array(data_sel_q30))
+        data_hf.create_dataset('sel_q90', data=np.array(data_sel_q10))
+        data_hf.create_dataset('sel_q95', data=np.array(data_sel_q05))
+        data_hf.create_dataset('sel_q99', data=np.array(data_sel_q01))
+        data_hf.create_dataset('eventFeatures', data=np.array(data_event_features))
+        data_hf.create_dataset('eventFeatureNames', data=data_event_feature_names_reversed)
+        data_hf.close()
 
 
