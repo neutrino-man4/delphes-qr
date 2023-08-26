@@ -89,11 +89,11 @@ def fitted_selection(sample, strategy_id, polynomial):
 
 
 
-nAttempt='2'
-bin_low=1460
+nAttempt='1'
+bin_low=1200 # Changed from 1460 to account for lower range of delphes samples
 bin_high=6800
 FRAC=0.66
-
+print('nAttempt= '+nAttempt)
 #set_seeds(777)
 
 #****************************************#
@@ -109,16 +109,18 @@ parser.add_argument("--save-sig-samples", action='store_true')
 parser.add_argument("-m","--mix",dest='mix', action='store_true')
 
 args = parser.parse_args()
-tag = 'nominal'
 run=args.run
 
 nFolds=4
 if args.mix:
     nFolds=1
+    print(f'JET MIXING WILL BE PERFORMED. K-FOLDING NOT USED, NFOLDS={nFolds}')
+else:
+    print(f'NFOLDS={nFolds}, JET MIXING NOT PERFORMED')
 
 BSIZE=256
 pol_order=3
-comments = [nAttempt,f'Train-validation split = {FRAC}',f'smoothing range =[{bin_low},{bin_high}]',f'VAE Run = {args.run}',f'No. of folds = {nFolds}','Weighting: applied','mJJ>1460',f'batch_size = {BSIZE}',f'polynomial order = {pol_order}',f'jet mixing = {args.mix}']
+comments = [nAttempt,f'signal injection={args.injection}',f'Train-validation split = {FRAC}',f'smoothing range =[{bin_low},{bin_high}]',f'VAE Run = {args.run}',f'No. of folds = {nFolds}','Weighting: applied','mJJ>1460',f'batch_size = {BSIZE}',f'polynomial order = {pol_order}',f'jet mixing = {args.mix}']
 
 #sample = sys.argv[1] #'grav_3p5_narrow'
 #mass = float(sys.argv[2])
@@ -161,12 +163,12 @@ else:
 regions = ["A","B","C","D","E"]
 #quantiles = [0.5]
 #methods=['ER','expectiles']
-methods=['QR','quantiles']
+method='QR'
 
 # to run
 Parameters = recordtype('Parameters','run_n, qcd_sample_id, sig_sample_id, strategy_id, epochs, kfold, poly_order, read_n')
 params = Parameters(run_n=run,
-                    qcd_sample_id='delphes_bkgReco',
+                    qcd_sample_id='qcd_sqrtshatTeV_13TeV_PU40_NEW_EXT_signalregion_partsReco',
                     #qcd_sample_id='qcdSideDataReco',
                     sig_sample_id=None, # set sig id later in loop
                     # strategy_id='rk5_05max',
@@ -214,12 +216,13 @@ all_coeffs = {}
 
 nosiginj_chunks = []
 chunks = []
+mixed_chunks = []
 signal_samples = []
 injected_signal_samples = []
 
 
 
-print(f'Training {methods[0]}')
+print(f'Training {method}')
 
 for k in range(params.kfold):
 
@@ -286,6 +289,7 @@ for k in range(params.kfold):
                 
             if how_much_to_inject == 0:
                 mixed_train_sample, mixed_valid_sample = js.split_jet_sample_train_test(qcd_train_sample, FRAC)
+                train_sample,valid_sample=mixed_train_sample,mixed_valid_sample 
             else:
                 train_sample, valid_sample, injected_signal = dapr.inject_signal(qcd_train_sample, sig_sample_ini, how_much_to_inject, train_split = FRAC)
                 #mixed_train_sample, mixed_valid_sample, injected_signal = dapr.inject_signal(qcd_train_sample, sig_sample_ini, how_much_to_inject, train_split = 0.66)
@@ -298,12 +302,15 @@ for k in range(params.kfold):
                         
                 injected_signal_samples.append(injected_signal)
 
-            chunks.append(mixed_train_sample.merge(mixed_valid_sample))
+            chunks.append(train_sample.merge(valid_sample))
+            if args.mix:
+                mixed_chunks.append(mixed_train_sample.merge(mixed_valid_sample))
+            
             #pdb.set_trace()    
             # train QR model
-            if methods[0]=='ER':
+            if method=='ER':
                 discriminator = qrwf.train_VERv1(quantiles, mixed_train_sample, mixed_valid_sample, params,batch_size=BSIZE)
-            elif methods[0]=='QR':
+            elif method=='QR':
                 discriminator = qrwf.train_VQRv1(quantiles, mixed_train_sample, mixed_valid_sample, params,batch_size=BSIZE)
             else:
                 print('method not recognized. Quitting')
@@ -396,6 +403,7 @@ for k in range(0,params.kfold):
         nosiginj_chunks[k].dump(result_paths.sample_file_path(params.qcd_sample_id,additional_dir=comments[0], mkdir=True,overwrite=True,customname='delphes_bkg'),fold=k) # dumps individual chunks of background
         if inj!=0:
             chunks[k].dump(result_paths.sample_file_path(params.qcd_sample_id,additional_dir=comments[0], mkdir=True, overwrite=True, customname='delphes_bkg+inj_{}_{}'.format(sample,inj)),fold=k)
+            
         # Dumps each fold of bkg+inj signal dataset
 
 final_bkgsample = nosiginj_chunks[0]
@@ -408,11 +416,15 @@ if inj!=0:
     # Dump bkg+inj signal, only injected signal and entire signal
     final_datasample = chunks[0]
     final_injected_signal_sample = injected_signal_samples[0]
-    
-    if (not args.mix):
+        
+    if (not args.mix): # If no jet mixing, then there must be 4 folds or more. 
         for k in range(1,params.kfold):
             final_datasample = final_datasample.merge(chunks[k])
             final_injected_signal_sample = final_injected_signal_sample.merge(injected_signal_samples[k])
+    else:
+        final_mixed_datasample = mixed_chunks[0]
+        data_filename='delphes_mixing_bkg+inj_{}_{}'.format(sample,inj)
+        final_mixed_datasample.dump(result_paths.sample_file_path(params.qcd_sample_id,additional_dir=comments[0], mkdir=True, overwrite=True, customname=data_filename))
     
     data_filename='delphes_bkg+inj_{}_{}'.format(sample,inj)
     final_datasample.dump(result_paths.sample_file_path(params.qcd_sample_id,additional_dir=comments[0], mkdir=True, overwrite=True, customname=data_filename))
