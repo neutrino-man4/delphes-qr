@@ -3,3 +3,5 @@
 *.root
 *.h5
 *.csv
+*.png
+images/
